@@ -68,14 +68,33 @@ startBtn.addEventListener("click", async () => {
       { facingMode: "environment" }, // BACK CAMERA
       { fps: 10, qrbox: 250 },
       async (text) => {
-        await qr.stop();
-        running = false;
+  await qr.stop();
+  running = false;
 
-        result.innerText = "✅ SCANNED:\n" + text;
+  const teamId = text.trim();
 
-        // optional: reload after scan
-        setTimeout(() => location.reload(), 3000);
-      }
+  // 🔍 FETCH TEAM (READ ONLY)
+  const { data: team, error } = await supabaseClient
+    .from("teams")
+    .select("*")
+    .eq("team_id", teamId)
+    .single();
+
+  if (error || !team) {
+    result.innerText = "❌ Invalid Team QR";
+    setTimeout(() => location.reload(), 3000);
+    return;
+  }
+
+  // ✅ SHOW TEAM DETAILS
+  result.innerText =
+    "✅ TEAM FOUND\n\n" +
+    "Team Name: " + team.team_name + "\n" +
+    "Leader: " + team.leader_name + "\n" +
+    "Members: " + team.members_count;
+
+  setTimeout(() => location.reload(), 5000);
+}
     );
 
   } catch (err) {
