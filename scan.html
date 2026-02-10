@@ -86,14 +86,28 @@ startBtn.addEventListener("click", async () => {
     return;
   }
 
-  // ✅ SHOW TEAM DETAILS
-  result.innerText =
-    "✅ TEAM FOUND\n\n" +
-    "Team Name: " + team.team_name + "\n" +
-    "Leader: " + team.leader_name + "\n" +
-    "Members: " + team.members_count;
+  // 🍪 UPDATE DAY 1 SNACK COUNT
+const newCount = (team.day1_count || 0) + 1;
 
-  setTimeout(() => location.reload(), 5000);
+const { error: updateError } = await supabaseClient
+  .from("teams")
+  .update({ day1_count: newCount })
+  .eq("team_id", teamId);
+
+if (updateError) {
+  result.innerText = "❌ Failed to update snack count";
+  setTimeout(() => location.reload(), 3000);
+  return;
+}
+
+// ✅ SHOW CONFIRMATION
+result.innerText =
+  "✅ SNACK ISSUED\n\n" +
+  "Team: " + team.team_name + "\n" +
+  "Leader: " + team.leader_name + "\n" +
+  "Day 1 Used: " + newCount;
+
+setTimeout(() => location.reload(), 5000);
 }
     );
 
