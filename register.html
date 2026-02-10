@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Team Registration</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs/qrcode.min.js"></script>
+</head>
+<body>
+
+<h2>Team Registration</h2>
+
+<form id="registerForm">
+  <label>Team Name:</label><br>
+  <input type="text" id="team_name" required><br><br>
+
+  <label>Leader Name:</label><br>
+  <input type="text" id="leader_name" required><br><br>
+
+  <label>Number of Members:</label><br>
+  <input type="number" id="members_count" required><br><br>
+
+  <button type="submit">Register Team</button>
+</form>
+
+<hr>
+
+<h3 id="success"></h3>
+<div id="qrcode"></div>
+
+<script>
+  // 🔹 STEP A: CONNECT TO SUPABASE
+  const supabaseUrl = "https://oizydyfwoymfaspnylno.supabase.co";
+  const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9penlkeWZ3b3ltZmFzcG55bG5vIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA2MjEwMTAsImV4cCI6MjA4NjE5NzAxMH0.mupSJXh50rr715sVGX0MpKe-5aLB5EK70i_w4p_mDII";
+  const supabaseClient = supabase.createClient(supabaseUrl, supabaseKey);
+
+  // 🔹 STEP B: HANDLE FORM SUBMIT
+  document.getElementById("registerForm").addEventListener("submit", async function(e) {
+    e.preventDefault();
+
+    const teamName = document.getElementById("team_name").value;
+    const leaderName = document.getElementById("leader_name").value;
+    const membersCount = document.getElementById("members_count").value;
+
+    // 🔹 Generate unique Team ID
+    const teamId = "T" + Math.random().toString(36).substring(2, 8).toUpperCase();
+
+    // 🔹 Insert team into Supabase
+    const { error } = await supabaseClient.from("teams").insert({
+      team_id: teamId,
+      team_name: teamName,
+      leader_name: leaderName,
+      members_count: membersCount
+    });
+
+    if (error) {
+      alert("Error registering team");
+      console.log(error);
+      return;
+    }
+
+    // 🔹 Show success
+    document.getElementById("success").innerText =
+      "Registration Successful! Team ID: " + teamId;
+
+    // 🔹 Generate QR
+    document.getElementById("qrcode").innerHTML = "";
+    new QRCode(document.getElementById("qrcode"), teamId);
+  });
+</script>
+
+</body>
+</html>

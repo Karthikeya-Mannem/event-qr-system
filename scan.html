@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Scan Team QR</title>
+
+  <!-- Supabase JS -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <!-- QR Scanner -->
+  <script src="https://unpkg.com/html5-qrcode"></script>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+    }
+    #reader {
+      width: 320px;
+      margin-top: 20px;
+    }
+    #result {
+      margin-top: 20px;
+      white-space: pre-line;
+      font-size: 16px;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+
+<h2>Scan Team QR</h2>
+
+<div id="reader"></div>
+<div id="result"></div>
+
+<script>
+  /************ SUPABASE CONFIG ************/
+  const supabaseUrl = "https://oizydyfwoymfaspnylno.supabase.co";
+  const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9penlkeWZ3b3ltZmFzcG55bG5vIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA2MjEwMTAsImV4cCI6MjA4NjE5NzAxMH0.mupSJXh50rr715sVGX0MpKe-5aLB5EK70i_w4p_mDII";
+  const supabaseClient = supabase.createClient(supabaseUrl, supabaseKey);
+
+  /************ VARIABLES ************/
+  const resultDiv = document.getElementById("result");
+  let scanLocked = false;
+
+  /************ DAY FUNCTION (TEMP) ************/
+  function getCurrentDay() {
+    return 1; // Day 1 for now
+  }
+
+  /************ QR SUCCESS CALLBACK ************/
+  async function onScanSuccess(decodedText, decodedResult) {
+    if (scanLocked) return;
+    scanLocked = true;
+
+    console.log("QR detected:", decodedText);
+
+    // Stop scanner immediately to prevent multiple scans
+    html5QrCode.stop();
+
+    const teamId = decodedText.trim();
+
+    try {
+      // 1️⃣ Fetch team
+      const { data: team, error: fetchError } = await supabaseClient
+        .from("teams")
+        .select("*")
+        .eq("team_id", teamId)
+        .single();
+
+      if (fetchError || !team) {
+        resultDiv.innerText = "❌ Invalid QR Code";
+        return;
+      }
+
+      // 2️⃣ Check elimination
+      if (team.status === "ELIMINATED") {
+        resultDiv.innerText = "❌ Team Eliminated";
+        return;
+      }
+
+      const day = getCurrentDay();
+
+      // 3️⃣ Day-wise snack limit
+      if (day === 1 && team.day1_count >= 2) {
+        resultDiv.innerText = "❌ Day 1 snack limit reached";
+        return;
+      }
+
+      // 4️⃣ Update count in DB
+      const { error: updateError } = await supabaseClient
+        .from("teams")
+        .update({ day1_count: team.day1_count + 1 })
+        .eq("team_id", teamId);
+
+      if (updateError) {
+        console.error(updateError);
+        resultDiv.innerText = "❌ Failed to update snack count";
+        return;
+      }
+
+      // 5️⃣ Acknowledgement
+      resultDiv.innerText =
+        "✅ Snack Issued Successfully\n\n" +
+        "Team: " + team.team_name + "\n" +
+        "Day: 1\n" +
+        "Used Today: " + (team.day1_count + 1) + " / 2";
+
+      // Reload scanner after 3 seconds
+      setTimeout(() => {
+        location.reload();
+      }, 3000);
+
+    } catch (err) {
+      console.error(err);
+      resultDiv.innerText = "❌ Unexpected error occurred";
+    }
+  }
+
+  /************ START SCANNER ************/
+  const html5QrCode = new Html5Qrcode("reader");
+
+  Html5Qrcode.getCameras().then(devices => {
+    if (devices && devices.length) {
+      html5QrCode.start(
+        devices[0].id,
+        {
+          fps: 10,
+          qrbox: 250
+        },
+        onScanSuccess,
+        errorMessage => {
+          // optional scan errors ignored
+        }
+      );
+    } else {
+      resultDiv.innerText = "❌ No camera found";
+    }
+  }).catch(err => {
+    console.error(err);
+    resultDiv.innerText = "❌ Camera access error";
+  });
+</script>
+
+</body>
+</html>
