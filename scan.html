@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8">
   <title>Scan Team QR</title>
 
   <!-- Supabase -->
@@ -18,15 +18,14 @@
       width: 320px;
       margin-top: 20px;
     }
-    #result {
-      margin-top: 20px;
-      font-size: 16px;
-      font-weight: bold;
-      white-space: pre-line;
-    }
     #startBtn {
       padding: 14px 22px;
       font-size: 16px;
+    }
+    #result {
+      margin-top: 20px;
+      font-weight: bold;
+      white-space: pre-line;
     }
   </style>
 </head>
@@ -39,182 +38,56 @@
 <div id="result"></div>
 
 <script>
-/* ================= SUPABASE CONFIG ================= */
+/* ---------- SUPABASE ---------- */
 const SUPABASE_URL = "https://oizydyfwoymfaspnylno.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9penlkeWZ3b3ltZmFzcG55bG5vIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA2MjEwMTAsImV4cCI6MjA4NjE5NzAxMH0.mupSJXh50rr715sVGX0MpKe-5aLB5EK70i_w4p_mDII";
-const supabase = supabasejs.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const supabaseClient = supabase.createClient(
+  SUPABASE_URL,
+  SUPABASE_ANON_KEY
+);
 
-/* ================= ELEMENTS ================= */
+/* ---------- ELEMENTS ---------- */
 const startBtn = document.getElementById("startBtn");
-const readerDiv = document.getElementById("reader");
-const resultDiv = document.getElementById("result");
+const reader = document.getElementById("reader");
+const result = document.getElementById("result");
 
-/* ================= STATE ================= */
-let scannerRunning = false;
-let scanLocked = false;
+/* ---------- STATE ---------- */
+let running = false;
 const qr = new Html5Qrcode("reader");
 
-/* ================= AUTO DAY DETECTION ================= */
-async function getCurrentDay() {
-  const { data, error } = await supabase
-    .from("event_config")
-    .select("event_start_date")
-    .single();
-
-  if (error || !data) return null;
-
-  const start = new Date(data.event_start_date);
-  const today = new Date();
-  start.setHours(0,0,0,0);
-  today.setHours(0,0,0,0);
-
-  return Math.floor((today - start) / 86400000) + 1;
-}
-
-/* ================= ACTIVE SESSION ================= */
-async function getActiveSession(day) {
-  const timeNow = new Date().toTimeString().slice(0,8);
-
-  const { data, error } = await supabase
-    .from("time_windows")
-    .select("*")
-    .eq("day", day)
-    .eq("is_active", true);
-
-  if (error || !data) return null;
-
-  return data.find(
-    s => timeNow >= s.start_time && timeNow <= s.end_time
-  );
-}
-
-/* ================= SCAN SUCCESS ================= */
-async function onScanSuccess(text) {
-  if (scanLocked) return;
-  scanLocked = true;
-
-  await qr.stop();
-  scannerRunning = false;
-
-  const teamId = text.trim();
+/* ---------- BUTTON CLICK ---------- */
+startBtn.addEventListener("click", async () => {
+  if (running) return;
 
   try {
-    const day = await getCurrentDay();
-    if (!day) {
-      resultDiv.innerText = "❌ Event configuration missing";
-      resetScanner();
-      return;
-    }
-
-    const session = await getActiveSession(day);
-    if (!session) {
-      resultDiv.innerText = "⏰ Snack time CLOSED";
-      resetScanner();
-      return;
-    }
-
-    const { data: team } = await supabase
-      .from("teams")
-      .select("*")
-      .eq("team_id", teamId)
-      .single();
-
-    if (!team) {
-      resultDiv.innerText = "❌ Invalid QR Code";
-      resetScanner();
-      return;
-    }
-
-    if (team.status === "ELIMINATED") {
-      resultDiv.innerText = "❌ Team Eliminated";
-      resetScanner();
-      return;
-    }
-
-    const { data: already } = await supabase
-      .from("team_session_scans")
-      .select("*")
-      .eq("team_id", teamId)
-      .eq("session_id", session.id)
-      .single();
-
-    if (already) {
-      resultDiv.innerText =
-        "❌ Already scanned this session\n\n" +
-        session.session_name;
-      resetScanner();
-      return;
-    }
-
-    // Example: Day 1 limit = 2
-    if (day === 1 && team.day1_count >= 2) {
-      resultDiv.innerText = "❌ Day 1 snack limit reached";
-      resetScanner();
-      return;
-    }
-
-    await supabase
-      .from("teams")
-      .update({ day1_count: team.day1_count + 1 })
-      .eq("team_id", teamId);
-
-    await supabase
-      .from("team_session_scans")
-      .insert({
-        team_id: teamId,
-        session_id: session.id
-      });
-
-    resultDiv.innerText =
-      "✅ Snack Issued Successfully\n\n" +
-      "Team: " + team.team_name + "\n" +
-      "Day: " + day + "\n" +
-      "Session: " + session.session_name;
-
-    setTimeout(() => location.reload(), 5000);
-
-  } catch (err) {
-    console.error(err);
-    resultDiv.innerText = "❌ Unexpected error";
-    resetScanner();
-  }
-}
-
-/* ================= START SCANNER ================= */
-async function startScanner() {
-  if (scannerRunning) return;
-
-  try {
-    scannerRunning = true;
-    scanLocked = false;
-    resultDiv.innerText = "";
+    running = true;
+    startBtn.disabled = true;
+    result.innerText = "";
 
     await qr.start(
-      { facingMode: "environment" },
+      { facingMode: "environment" }, // BACK CAMERA
       { fps: 10, qrbox: 250 },
-      onScanSuccess
+      async (text) => {
+        await qr.stop();
+        running = false;
+
+        result.innerText = "✅ SCANNED:\n" + text;
+
+        // optional: reload after scan
+        setTimeout(() => location.reload(), 3000);
+      }
     );
+
   } catch (err) {
     console.error(err);
-    scannerRunning = false;
-    resultDiv.innerText =
+    running = false;
+    startBtn.disabled = false;
+    result.innerText =
       "❌ Camera could not start\n" +
-      "Please allow camera permission";
+      "• Allow camera permission\n" +
+      "• Use Chrome / Safari\n" +
+      "• Not in WhatsApp browser";
   }
-}
-
-/* ================= RESET ================= */
-function resetScanner() {
-  setTimeout(() => {
-    scanLocked = false;
-    startBtn.style.display = "block";
-  }, 3000);
-}
-
-/* ================= BUTTON ================= */
-startBtn.addEventListener("click", () => {
-  startBtn.style.display = "none";
-  startScanner();
 });
 </script>
 
