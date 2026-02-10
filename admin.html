@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Event Admin Panel</title>
+
+  <!-- Supabase -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+    }
+    h2 {
+      margin-top: 40px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 8px;
+      text-align: center;
+    }
+    button {
+      padding: 6px 10px;
+      margin: 2px;
+      cursor: pointer;
+    }
+    .danger {
+      background: #e74c3c;
+      color: white;
+    }
+    .success {
+      background: #2ecc71;
+      color: white;
+    }
+  </style>
+</head>
+<body>
+
+<h1>🎛 Event Admin Panel</h1>
+
+<!-- ================= TEAMS ================= -->
+<h2>👥 Teams</h2>
+<table id="teamsTable">
+  <thead>
+    <tr>
+      <th>Team ID</th>
+      <th>Team Name</th>
+      <th>Leader</th>
+      <th>Status</th>
+      <th>Day1 Count</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody></tbody>
+</table>
+
+<!-- ================= TIME WINDOWS ================= -->
+<h2>⏰ Time Windows</h2>
+<table id="windowsTable">
+  <thead>
+    <tr>
+      <th>Day</th>
+      <th>Session</th>
+      <th>Start</th>
+      <th>End</th>
+      <th>Active</th>
+      <th>Action</th>
+    </tr>
+  </thead>
+  <tbody></tbody>
+</table>
+
+<script>
+/* ---------- SUPABASE ---------- */
+const SUPABASE_URL = "https://oizydyfwoymfaspnylno.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9penlkeWZ3b3ltZmFzcG55bG5vIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA2MjEwMTAsImV4cCI6MjA4NjE5NzAxMH0.mupSJXh50rr715sVGX0MpKe-5aLB5EK70i_w4p_mDII";
+const supabaseClient = supabase.createClient(
+  SUPABASE_URL,
+  SUPABASE_ANON_KEY
+);
+
+/* ---------- LOAD TEAMS ---------- */
+async function loadTeams() {
+  const { data } = await supabaseClient
+    .from("teams")
+    .select("*")
+    .order("team_name");
+
+  const tbody = document.querySelector("#teamsTable tbody");
+  tbody.innerHTML = "";
+
+  data.forEach(team => {
+    const tr = document.createElement("tr");
+
+    tr.innerHTML = `
+      <td>${team.team_id}</td>
+      <td>${team.team_name}</td>
+      <td>${team.leader_name}</td>
+      <td>${team.status}</td>
+      <td>${team.day1_count || 0}</td>
+      <td>
+        <button class="danger" onclick="eliminateTeam('${team.team_id}')">Eliminate</button>
+        <button class="success" onclick="activateTeam('${team.team_id}')">Activate</button>
+        <button onclick="resetCount('${team.team_id}')">Reset Count</button>
+      </td>
+    `;
+
+    tbody.appendChild(tr);
+  });
+}
+
+/* ---------- TEAM ACTIONS ---------- */
+async function eliminateTeam(teamId) {
+  await supabaseClient
+    .from("teams")
+    .update({ status: "ELIMINATED" })
+    .eq("team_id", teamId);
+  loadTeams();
+}
+
+async function activateTeam(teamId) {
+  await supabaseClient
+    .from("teams")
+    .update({ status: "ACTIVE" })
+    .eq("team_id", teamId);
+  loadTeams();
+}
+
+async function resetCount(teamId) {
+  await supabaseClient
+    .from("teams")
+    .update({ day1_count: 0 })
+    .eq("team_id", teamId);
+  loadTeams();
+}
+
+/* ---------- LOAD TIME WINDOWS ---------- */
+async function loadWindows() {
+  const { data } = await supabaseClient
+    .from("time_windows")
+    .select("*")
+    .order("day");
+
+  const tbody = document.querySelector("#windowsTable tbody");
+  tbody.innerHTML = "";
+
+  data.forEach(w => {
+    const tr = document.createElement("tr");
+
+    tr.innerHTML = `
+      <td>${w.day}</td>
+      <td>${w.session_name || ""}</td>
+      <td>${w.start_time}</td>
+      <td>${w.end_time}</td>
+      <td>${w.is_active}</td>
+      <td>
+        <button onclick="toggleWindow(${w.id}, ${w.is_active})">
+          ${w.is_active ? "Disable" : "Enable"}
+        </button>
+      </td>
+    `;
+
+    tbody.appendChild(tr);
+  });
+}
+
+async function toggleWindow(id, current) {
+  await supabaseClient
+    .from("time_windows")
+    .update({ is_active: !current })
+    .eq("id", id);
+  loadWindows();
+}
+
+/* ---------- INIT ---------- */
+loadTeams();
+loadWindows();
+</script>
+
+</body>
+</html>
