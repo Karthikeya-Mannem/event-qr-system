@@ -107,10 +107,14 @@
         "Day: 1\n" +
         "Used Today: " + (team.day1_count + 1) + " / 2";
 
-      // Reload page after 3 seconds for next scan
-      setTimeout(() => {
-        location.reload();
-      }, 3000);
+      // 🔒 Lock UI & keep acknowledgement visible
+	document.getElementById("reader").style.display = "none";
+
+	// ⏳ Keep message visible for 5 seconds
+	setTimeout(() => {
+  	location.reload();
+	}, 5000);
+
 
     } catch (err) {
       console.error(err);
