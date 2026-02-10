@@ -13,6 +13,7 @@
   <style>
     body {
       font-family: Arial, sans-serif;
+      padding: 10px;
     }
     #reader {
       width: 320px;
@@ -36,12 +37,13 @@
 <script>
   /************ SUPABASE CONFIG ************/
   const supabaseUrl = "https://oizydyfwoymfaspnylno.supabase.co";
-  const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9penlkeWZ3b3ltZmFzcG55bG5vIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA2MjEwMTAsImV4cCI6MjA4NjE5NzAxMH0.mupSJXh50rr715sVGX0MpKe-5aLB5EK70i_w4p_mDII";
+  const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9penlkeWZ3b3ltZmFzcG55bG5vIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA2MjEwMTAsImV4cCI6MjA4NjE5NzAxMH0.mupSJXh50rr715sVGX0MpKe-5aLB5EK70i_w4p_mDII"; // 👈 replace only this
   const supabaseClient = supabase.createClient(supabaseUrl, supabaseKey);
 
   /************ VARIABLES ************/
   const resultDiv = document.getElementById("result");
   let scanLocked = false;
+  let html5QrCode;
 
   /************ DAY FUNCTION (TEMP) ************/
   function getCurrentDay() {
@@ -53,12 +55,11 @@
     if (scanLocked) return;
     scanLocked = true;
 
-    console.log("QR detected:", decodedText);
-
-    // Stop scanner immediately to prevent multiple scans
-    html5QrCode.stop();
-
     const teamId = decodedText.trim();
+    console.log("QR detected:", teamId);
+
+    // Stop scanner to prevent double scan
+    await html5QrCode.stop();
 
     try {
       // 1️⃣ Fetch team
@@ -81,13 +82,13 @@
 
       const day = getCurrentDay();
 
-      // 3️⃣ Day-wise snack limit
+      // 3️⃣ Day-wise limit (Day 1 = 2 snacks)
       if (day === 1 && team.day1_count >= 2) {
         resultDiv.innerText = "❌ Day 1 snack limit reached";
         return;
       }
 
-      // 4️⃣ Update count in DB
+      // 4️⃣ Update snack count
       const { error: updateError } = await supabaseClient
         .from("teams")
         .update({ day1_count: team.day1_count + 1 })
@@ -106,7 +107,7 @@
         "Day: 1\n" +
         "Used Today: " + (team.day1_count + 1) + " / 2";
 
-      // Reload scanner after 3 seconds
+      // Reload page after 3 seconds for next scan
       setTimeout(() => {
         location.reload();
       }, 3000);
@@ -117,7 +118,41 @@
     }
   }
 
-  </script>
+  /************ START SCANNER (FORCE BACK CAMERA) ************/
+  html5QrCode = new Html5Qrcode("reader");
+
+  Html5Qrcode.getCameras().then(devices => {
+    if (!devices || devices.length === 0) {
+      resultDiv.innerText = "❌ No camera found";
+      return;
+    }
+
+    // 🔥 Prefer BACK / REAR camera
+    let cameraId = devices[0].id;
+    for (let device of devices) {
+      const label = device.label.toLowerCase();
+      if (label.includes("back") || label.includes("rear")) {
+        cameraId = device.id;
+        break;
+      }
+    }
+
+    html5QrCode.start(
+      cameraId,
+      {
+        fps: 10,
+        qrbox: { width: 250, height: 250 }
+      },
+      onScanSuccess,
+      errorMessage => {
+        // ignore scan errors
+      }
+    );
+  }).catch(err => {
+    console.error(err);
+    resultDiv.innerText = "❌ Camera access error";
+  });
+</script>
 
 </body>
 </html>
