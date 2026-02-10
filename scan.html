@@ -89,6 +89,27 @@ async function getActiveSession(day) {
   );
 }
 
+/************ AUTO DAY DETECTION ************/
+async function getCurrentDay() {
+  const { data, error } = await supabaseClient
+    .from("event_config")
+    .select("event_start_date")
+    .single();
+
+  if (error || !data) return null;
+
+  const start = new Date(data.event_start_date);
+  const today = new Date();
+
+  start.setHours(0,0,0,0);
+  today.setHours(0,0,0,0);
+
+  const diff =
+    Math.floor((today - start) / (1000 * 60 * 60 * 24)) + 1;
+
+  return diff; // 1, 2, 3, ...
+}
+
 /* ---------- BUTTON CLICK ---------- */
 startBtn.addEventListener("click", async () => {
   if (running) return;
@@ -106,7 +127,13 @@ startBtn.addEventListener("click", async () => {
         running = false;
 
         const teamId = text.trim();
-        const day = 1; // STEP 6 will auto-detect day
+        const day = await getCurrentDay();
+if (!day) {
+  result.innerText = "❌ Event configuration missing";
+  setTimeout(() => location.reload(), 3000);
+  return;
+}
+
 
         /* 1️⃣ FETCH TEAM */
         const { data: team, error } = await supabaseClient
