@@ -150,6 +150,7 @@ async function onScanSuccess(text) {
 /************ START / RESET ************/
 function startScanner() {
   if (scannerRunning) return;
+
   scannerRunning = true;
   readerDiv.style.display = "block";
 
@@ -157,7 +158,22 @@ function startScanner() {
     { facingMode: "environment" },
     { fps: 10, qrbox: 250 },
     onScanSuccess
-  );
+  ).then(() => {
+    console.log("📷 Camera started");
+  }).catch(err => {
+    console.error("❌ Camera start failed:", err);
+
+    // Reset state if camera fails
+    scannerRunning = false;
+    scanLocked = false;
+    readerDiv.style.display = "none";
+    startBtn.style.display = "block";
+
+    resultDiv.innerText =
+      "❌ Camera could not be started.\n\n" +
+      "Please allow camera permission\n" +
+      "and try again.";
+  });
 }
 
 function resetScanner() {
