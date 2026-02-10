@@ -35,143 +35,165 @@
 <div id="result"></div>
 
 <script>
-  /************ SUPABASE CONFIG ************/
-  const supabaseUrl = "https://oizydyfwoymfaspnylno.supabase.co";
-  const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9penlkeWZ3b3ltZmFzcG55bG5vIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA2MjEwMTAsImV4cCI6MjA4NjE5NzAxMH0.mupSJXh50rr715sVGX0MpKe-5aLB5EK70i_w4p_mDII";
-  const supabaseClient = supabase.createClient(supabaseUrl, supabaseKey);
+/************ SUPABASE CONFIG ************/
+const supabaseUrl = "https://oizydyfwoymfaspnylno.supabase.co";
+const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9penlkeWZ3b3ltZmFzcG55bG5vIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA2MjEwMTAsImV4cCI6MjA4NjE5NzAxMH0.mupSJXh50rr715sVGX0MpKe-5aLB5EK70i_w4p_mDII";
+const supabaseClient = supabase.createClient(supabaseUrl, supabaseKey);
 
-  /************ GLOBAL STATE ************/
-  const resultDiv = document.getElementById("result");
-  const readerDiv = document.getElementById("reader");
+/************ GLOBAL STATE ************/
+const resultDiv = document.getElementById("result");
+const readerDiv = document.getElementById("reader");
 
-  let scanLocked = false;
-  let scannerRunning = false;
+let scanLocked = false;
+let scannerRunning = false;
 
-  const html5QrCode = new Html5Qrcode("reader");
+const html5QrCode = new Html5Qrcode("reader");
 
-  /************ DAY HANDLING (TEMP) ************/
-  function getCurrentDay() {
-    return 1; // Day 1 for now
+/************ DAY (TEMP) ************/
+function getCurrentDay() {
+  return 1; // change later for auto-detection
+}
+
+/************ GET ACTIVE SESSION ************/
+async function getActiveSession(day) {
+  const now = new Date();
+  const currentTime = now.toTimeString().slice(0, 8);
+
+  const { data, error } = await supabaseClient
+    .from("time_windows")
+    .select("*")
+    .eq("day", day)
+    .eq("is_active", true);
+
+  if (error || !data) return null;
+
+  for (let session of data) {
+    if (
+      currentTime >= session.start_time &&
+      currentTime <= session.end_time
+    ) {
+      return session;
+    }
+  }
+  return null;
+}
+
+/************ QR SUCCESS ************/
+async function onScanSuccess(decodedText) {
+  if (scanLocked) return;
+  scanLocked = true;
+
+  const teamId = decodedText.trim();
+
+  if (scannerRunning) {
+    await html5QrCode.stop();
+    scannerRunning = false;
+  }
+  readerDiv.style.display = "none";
+
+  const day = getCurrentDay();
+
+  /* ⏰ FIND ACTIVE SESSION */
+  const session = await getActiveSession(day);
+  if (!session) {
+    resultDiv.innerText = "⏰ Snack time is CLOSED";
+
+    setTimeout(() => {
+      scanLocked = false;
+      readerDiv.style.display = "block";
+      startScanner();
+    }, 3000);
+
+    return;
   }
 
-  /************ TIME WINDOW CHECK ************/
-  async function isWithinTimeWindow(day) {
-    const now = new Date();
-    const currentTime = now.toTimeString().slice(0, 8); // HH:MM:SS
-
-    const { data: windows, error } = await supabaseClient
-      .from("time_windows")
+  try {
+    /* 🔍 FETCH TEAM */
+    const { data: team, error } = await supabaseClient
+      .from("teams")
       .select("*")
-      .eq("day", day)
-      .eq("is_active", true);
+      .eq("team_id", teamId)
+      .single();
 
-    if (error || !windows || windows.length === 0) return false;
-
-    for (let w of windows) {
-      if (currentTime >= w.start_time && currentTime <= w.end_time) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  /************ QR SUCCESS HANDLER ************/
-  async function onScanSuccess(decodedText) {
-    if (scanLocked) return;
-    scanLocked = true;
-
-    const teamId = decodedText.trim();
-
-    // Stop scanner immediately
-    if (scannerRunning) {
-      await html5QrCode.stop();
-      scannerRunning = false;
-    }
-    readerDiv.style.display = "none";
-
-    const day = getCurrentDay();
-
-    /* ⏰ TIME WINDOW CHECK */
-    const allowed = await isWithinTimeWindow(day);
-    if (!allowed) {
-      resultDiv.innerText = "⏰ Snack time is CLOSED";
-
-      // Restart scanner after 3 seconds
-      setTimeout(() => {
-        scanLocked = false;
-        readerDiv.style.display = "block";
-        startScanner();
-      }, 3000);
-
+    if (error || !team) {
+      resultDiv.innerText = "❌ Invalid QR Code";
       return;
     }
 
-    try {
-      /* 🔍 FETCH TEAM */
-      const { data: team, error } = await supabaseClient
-        .from("teams")
-        .select("*")
-        .eq("team_id", teamId)
-        .single();
-
-      if (error || !team) {
-        resultDiv.innerText = "❌ Invalid QR Code";
-        return;
-      }
-
-      if (team.status === "ELIMINATED") {
-        resultDiv.innerText = "❌ Team Eliminated";
-        return;
-      }
-
-      /* 🍪 DAY-1 LIMIT */
-      if (team.day1_count >= 2) {
-        resultDiv.innerText = "❌ Day 1 snack limit reached";
-        return;
-      }
-
-      /* ✅ UPDATE COUNT */
-      await supabaseClient
-        .from("teams")
-        .update({ day1_count: team.day1_count + 1 })
-        .eq("team_id", teamId);
-
-      /* ✅ ACKNOWLEDGEMENT */
-      resultDiv.innerText =
-        "✅ Snack Issued Successfully\n\n" +
-        "Team: " + team.team_name + "\n" +
-        "Day: 1\n" +
-        "Used Today: " + (team.day1_count + 1) + " / 2";
-
-      // Keep acknowledgement visible for 5 seconds
-      setTimeout(() => {
-        location.reload();
-      }, 5000);
-
-    } catch (err) {
-      console.error(err);
-      resultDiv.innerText = "❌ Unexpected error occurred";
+    if (team.status === "ELIMINATED") {
+      resultDiv.innerText = "❌ Team Eliminated";
+      return;
     }
+
+    /* 🔁 SESSION DUPLICATE CHECK */
+    const { data: existingScan } = await supabaseClient
+      .from("team_session_scans")
+      .select("*")
+      .eq("team_id", teamId)
+      .eq("session_id", session.id)
+      .single();
+
+    if (existingScan) {
+      resultDiv.innerText =
+        "❌ Already scanned in this session\n\n" +
+        session.session_name;
+
+      setTimeout(() => location.reload(), 4000);
+      return;
+    }
+
+    /* 🍪 DAY-1 LIMIT */
+    if (team.day1_count >= 2) {
+      resultDiv.innerText = "❌ Day 1 snack limit reached";
+      return;
+    }
+
+    /* ✅ UPDATE TEAM COUNT */
+    await supabaseClient
+      .from("teams")
+      .update({ day1_count: team.day1_count + 1 })
+      .eq("team_id", teamId);
+
+    /* ✅ INSERT SESSION SCAN */
+    await supabaseClient
+      .from("team_session_scans")
+      .insert({
+        team_id: teamId,
+        session_id: session.id
+      });
+
+    /* ✅ ACKNOWLEDGEMENT */
+    resultDiv.innerText =
+      "✅ Snack Issued Successfully\n\n" +
+      "Team: " + team.team_name + "\n" +
+      "Session: " + session.session_name + "\n" +
+      "Used Today: " + (team.day1_count + 1) + " / 2";
+
+    setTimeout(() => location.reload(), 5000);
+
+  } catch (err) {
+    console.error(err);
+    resultDiv.innerText = "❌ Unexpected error";
   }
+}
 
-  /************ START SCANNER (BACK CAMERA) ************/
-  function startScanner() {
-    if (scannerRunning) return;
+/************ START SCANNER ************/
+function startScanner() {
+  if (scannerRunning) return;
 
-    scannerRunning = true;
-    html5QrCode.start(
-      { facingMode: "environment" }, // 🔥 BACK CAMERA
-      { fps: 10, qrbox: 250 },
-      onScanSuccess
-    ).catch(err => {
-      scannerRunning = false;
-      console.error(err);
-      resultDiv.innerText = "❌ Camera access failed";
-    });
-  }
+  scannerRunning = true;
+  html5QrCode.start(
+    { facingMode: "environment" },
+    { fps: 10, qrbox: 250 },
+    onScanSuccess
+  ).catch(err => {
+    scannerRunning = false;
+    console.error(err);
+    resultDiv.innerText = "❌ Camera access failed";
+  });
+}
 
-  // Initial start
-  startScanner();
+startScanner();
 </script>
 
 </body>
