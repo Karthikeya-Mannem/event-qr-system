@@ -40,31 +40,81 @@
   const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9penlkeWZ3b3ltZmFzcG55bG5vIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA2MjEwMTAsImV4cCI6MjA4NjE5NzAxMH0.mupSJXh50rr715sVGX0MpKe-5aLB5EK70i_w4p_mDII";
   const supabaseClient = supabase.createClient(supabaseUrl, supabaseKey);
 
+  /************ GLOBAL STATE ************/
   const resultDiv = document.getElementById("result");
+  const readerDiv = document.getElementById("reader");
+
   let scanLocked = false;
+  let scannerRunning = false;
+
   const html5QrCode = new Html5Qrcode("reader");
 
+  /************ DAY HANDLING (TEMP) ************/
   function getCurrentDay() {
     return 1; // Day 1 for now
   }
 
+  /************ TIME WINDOW CHECK ************/
+  async function isWithinTimeWindow(day) {
+    const now = new Date();
+    const currentTime = now.toTimeString().slice(0, 8); // HH:MM:SS
+
+    const { data: windows, error } = await supabaseClient
+      .from("time_windows")
+      .select("*")
+      .eq("day", day)
+      .eq("is_active", true);
+
+    if (error || !windows || windows.length === 0) return false;
+
+    for (let w of windows) {
+      if (currentTime >= w.start_time && currentTime <= w.end_time) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /************ QR SUCCESS HANDLER ************/
   async function onScanSuccess(decodedText) {
     if (scanLocked) return;
     scanLocked = true;
 
-    await html5QrCode.stop(); // stop camera after scan
-    document.getElementById("reader").style.display = "none";
-
     const teamId = decodedText.trim();
 
+    // Stop scanner immediately
+    if (scannerRunning) {
+      await html5QrCode.stop();
+      scannerRunning = false;
+    }
+    readerDiv.style.display = "none";
+
+    const day = getCurrentDay();
+
+    /* ⏰ TIME WINDOW CHECK */
+    const allowed = await isWithinTimeWindow(day);
+    if (!allowed) {
+      resultDiv.innerText = "⏰ Snack time is CLOSED";
+
+      // Restart scanner after 3 seconds
+      setTimeout(() => {
+        scanLocked = false;
+        readerDiv.style.display = "block";
+        startScanner();
+      }, 3000);
+
+      return;
+    }
+
     try {
+      /* 🔍 FETCH TEAM */
       const { data: team, error } = await supabaseClient
         .from("teams")
         .select("*")
         .eq("team_id", teamId)
         .single();
 
-      if (!team || error) {
+      if (error || !team) {
         resultDiv.innerText = "❌ Invalid QR Code";
         return;
       }
@@ -74,45 +124,54 @@
         return;
       }
 
+      /* 🍪 DAY-1 LIMIT */
       if (team.day1_count >= 2) {
         resultDiv.innerText = "❌ Day 1 snack limit reached";
         return;
       }
 
+      /* ✅ UPDATE COUNT */
       await supabaseClient
         .from("teams")
         .update({ day1_count: team.day1_count + 1 })
         .eq("team_id", teamId);
 
+      /* ✅ ACKNOWLEDGEMENT */
       resultDiv.innerText =
         "✅ Snack Issued Successfully\n\n" +
         "Team: " + team.team_name + "\n" +
         "Day: 1\n" +
         "Used Today: " + (team.day1_count + 1) + " / 2";
 
-      // Show acknowledgement clearly for 5 seconds
+      // Keep acknowledgement visible for 5 seconds
       setTimeout(() => {
         location.reload();
       }, 5000);
 
-    } catch (e) {
-      console.error(e);
-      resultDiv.innerText = "❌ Unexpected error";
+    } catch (err) {
+      console.error(err);
+      resultDiv.innerText = "❌ Unexpected error occurred";
     }
   }
 
-  /************ START SCANNER (FORCE BACK CAMERA – RELIABLE) ************/
-  html5QrCode.start(
-    { facingMode: "environment" }, // 🔥 FORCE BACK CAMERA
-    {
-      fps: 10,
-      qrbox: 250
-    },
-    onScanSuccess
-  ).catch(err => {
-    console.error(err);
-    resultDiv.innerText = "❌ Camera access failed";
-  });
+  /************ START SCANNER (BACK CAMERA) ************/
+  function startScanner() {
+    if (scannerRunning) return;
+
+    scannerRunning = true;
+    html5QrCode.start(
+      { facingMode: "environment" }, // 🔥 BACK CAMERA
+      { fps: 10, qrbox: 250 },
+      onScanSuccess
+    ).catch(err => {
+      scannerRunning = false;
+      console.error(err);
+      resultDiv.innerText = "❌ Camera access failed";
+    });
+  }
+
+  // Initial start
+  startScanner();
 </script>
 
 </body>
