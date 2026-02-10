@@ -117,30 +117,7 @@
     }
   }
 
-  /************ START SCANNER ************/
-  const html5QrCode = new Html5Qrcode("reader");
-
-  Html5Qrcode.getCameras().then(devices => {
-    if (devices && devices.length) {
-      html5QrCode.start(
-        devices[0].id,
-        {
-          fps: 10,
-          qrbox: 250
-        },
-        onScanSuccess,
-        errorMessage => {
-          // optional scan errors ignored
-        }
-      );
-    } else {
-      resultDiv.innerText = "❌ No camera found";
-    }
-  }).catch(err => {
-    console.error(err);
-    resultDiv.innerText = "❌ Camera access error";
-  });
-</script>
+  </script>
 
 </body>
 </html>
