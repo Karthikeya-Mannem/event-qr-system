@@ -4,27 +4,25 @@
   <meta charset="UTF-8">
   <title>Scan Team QR</title>
 
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <!-- QR Scanner -->
   <script src="https://unpkg.com/html5-qrcode"></script>
 
   <style>
     body {
       font-family: Arial, sans-serif;
-      padding: 12px;
+      padding: 16px;
     }
     #reader {
-      width: 320px;
+      width: 300px;
       margin-top: 20px;
+    }
+    #startBtn {
+      padding: 14px 20px;
+      font-size: 16px;
     }
     #result {
       margin-top: 20px;
-      white-space: pre-line;
-      font-size: 16px;
       font-weight: bold;
-    }
-    #startBtn {
-      padding: 14px 22px;
-      font-size: 16px;
     }
   </style>
 </head>
@@ -37,62 +35,40 @@
 <div id="result"></div>
 
 <script>
-/* ---------- SUPABASE ---------- */
-const supabase = supabasejs.createClient(
-  "https://oizydyfwoymfaspnylno.supabase.co",
-"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9penlkeWZ3b3ltZmFzcG55bG5vIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA2MjEwMTAsImV4cCI6MjA4NjE5NzAxMH0.mupSJXh50rr715sVGX0MpKe-5aLB5EK70i_w4p_mDII"
-);
-
-/* ---------- ELEMENTS ---------- */
 const startBtn = document.getElementById("startBtn");
 const reader = document.getElementById("reader");
 const result = document.getElementById("result");
 
-/* ---------- STATE ---------- */
-let scannerStarted = false;
 const qr = new Html5Qrcode("reader");
+let running = false;
 
-/* ---------- CLICK HANDLER (CRITICAL) ---------- */
 startBtn.addEventListener("click", async () => {
-  if (scannerStarted) return;
-
-  result.innerText = "";
-  startBtn.disabled = true;
+  if (running) return;
 
   try {
-    scannerStarted = true;
+    running = true;
+    result.innerText = "";
 
     await qr.start(
       { facingMode: "environment" }, // BACK CAMERA
       { fps: 10, qrbox: 250 },
-      onScanSuccess
+      (text) => {
+        result.innerText = "✅ SCANNED: " + text;
+        qr.stop();
+        running = false;
+      }
     );
 
-    console.log("Camera started");
-
   } catch (err) {
-    console.error(err);
-    scannerStarted = false;
-    startBtn.disabled = false;
+    running = false;
     result.innerText =
-      "❌ Camera blocked\n\n" +
+      "❌ Camera failed\n" +
       "• Allow camera permission\n" +
-      "• Use Chrome / Safari\n" +
-      "• Do NOT use in-app browsers";
+      "• Use Chrome/Safari\n" +
+      "• Not in WhatsApp browser";
+    console.error(err);
   }
 });
-
-/* ---------- SCAN RESULT ---------- */
-async function onScanSuccess(text) {
-  await qr.stop();
-  scannerStarted = false;
-
-  result.innerText =
-    "✅ QR SCANNED\n\n" +
-    "ID: " + text;
-
-  setTimeout(() => location.reload(), 3000);
-}
 </script>
 
 </body>
