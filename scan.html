@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <title>Scan Team QR</title>
 
-  <!-- Supabase JS -->
+  <!-- Supabase -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <!-- QR Scanner -->
@@ -37,124 +37,81 @@
 <script>
   /************ SUPABASE CONFIG ************/
   const supabaseUrl = "https://oizydyfwoymfaspnylno.supabase.co";
-  const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9penlkeWZ3b3ltZmFzcG55bG5vIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA2MjEwMTAsImV4cCI6MjA4NjE5NzAxMH0.mupSJXh50rr715sVGX0MpKe-5aLB5EK70i_w4p_mDII"; // 👈 replace only this
+  const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9penlkeWZ3b3ltZmFzcG55bG5vIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA2MjEwMTAsImV4cCI6MjA4NjE5NzAxMH0.mupSJXh50rr715sVGX0MpKe-5aLB5EK70i_w4p_mDII";
   const supabaseClient = supabase.createClient(supabaseUrl, supabaseKey);
 
-  /************ VARIABLES ************/
   const resultDiv = document.getElementById("result");
   let scanLocked = false;
-  let html5QrCode;
+  const html5QrCode = new Html5Qrcode("reader");
 
-  /************ DAY FUNCTION (TEMP) ************/
   function getCurrentDay() {
     return 1; // Day 1 for now
   }
 
-  /************ QR SUCCESS CALLBACK ************/
-  async function onScanSuccess(decodedText, decodedResult) {
+  async function onScanSuccess(decodedText) {
     if (scanLocked) return;
     scanLocked = true;
 
-    const teamId = decodedText.trim();
-    console.log("QR detected:", teamId);
+    await html5QrCode.stop(); // stop camera after scan
+    document.getElementById("reader").style.display = "none";
 
-    // Stop scanner to prevent double scan
-    await html5QrCode.stop();
+    const teamId = decodedText.trim();
 
     try {
-      // 1️⃣ Fetch team
-      const { data: team, error: fetchError } = await supabaseClient
+      const { data: team, error } = await supabaseClient
         .from("teams")
         .select("*")
         .eq("team_id", teamId)
         .single();
 
-      if (fetchError || !team) {
+      if (!team || error) {
         resultDiv.innerText = "❌ Invalid QR Code";
         return;
       }
 
-      // 2️⃣ Check elimination
       if (team.status === "ELIMINATED") {
         resultDiv.innerText = "❌ Team Eliminated";
         return;
       }
 
-      const day = getCurrentDay();
-
-      // 3️⃣ Day-wise limit (Day 1 = 2 snacks)
-      if (day === 1 && team.day1_count >= 2) {
+      if (team.day1_count >= 2) {
         resultDiv.innerText = "❌ Day 1 snack limit reached";
         return;
       }
 
-      // 4️⃣ Update snack count
-      const { error: updateError } = await supabaseClient
+      await supabaseClient
         .from("teams")
         .update({ day1_count: team.day1_count + 1 })
         .eq("team_id", teamId);
 
-      if (updateError) {
-        console.error(updateError);
-        resultDiv.innerText = "❌ Failed to update snack count";
-        return;
-      }
-
-      // 5️⃣ Acknowledgement
       resultDiv.innerText =
         "✅ Snack Issued Successfully\n\n" +
         "Team: " + team.team_name + "\n" +
         "Day: 1\n" +
         "Used Today: " + (team.day1_count + 1) + " / 2";
 
-      // 🔒 Lock UI & keep acknowledgement visible
-	document.getElementById("reader").style.display = "none";
+      // Show acknowledgement clearly for 5 seconds
+      setTimeout(() => {
+        location.reload();
+      }, 5000);
 
-	// ⏳ Keep message visible for 5 seconds
-	setTimeout(() => {
-  	location.reload();
-	}, 5000);
-
-
-    } catch (err) {
-      console.error(err);
-      resultDiv.innerText = "❌ Unexpected error occurred";
+    } catch (e) {
+      console.error(e);
+      resultDiv.innerText = "❌ Unexpected error";
     }
   }
 
-  /************ START SCANNER (FORCE BACK CAMERA) ************/
-  html5QrCode = new Html5Qrcode("reader");
-
-  Html5Qrcode.getCameras().then(devices => {
-    if (!devices || devices.length === 0) {
-      resultDiv.innerText = "❌ No camera found";
-      return;
-    }
-
-    // 🔥 Prefer BACK / REAR camera
-    let cameraId = devices[0].id;
-    for (let device of devices) {
-      const label = device.label.toLowerCase();
-      if (label.includes("back") || label.includes("rear")) {
-        cameraId = device.id;
-        break;
-      }
-    }
-
-    html5QrCode.start(
-      cameraId,
-      {
-        fps: 10,
-        qrbox: { width: 250, height: 250 }
-      },
-      onScanSuccess,
-      errorMessage => {
-        // ignore scan errors
-      }
-    );
-  }).catch(err => {
+  /************ START SCANNER (FORCE BACK CAMERA – RELIABLE) ************/
+  html5QrCode.start(
+    { facingMode: "environment" }, // 🔥 FORCE BACK CAMERA
+    {
+      fps: 10,
+      qrbox: 250
+    },
+    onScanSuccess
+  ).catch(err => {
     console.error(err);
-    resultDiv.innerText = "❌ Camera access error";
+    resultDiv.innerText = "❌ Camera access failed";
   });
 </script>
 
