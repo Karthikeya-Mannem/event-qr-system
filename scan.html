@@ -4,10 +4,7 @@
   <meta charset="UTF-8">
   <title>Scan Team QR</title>
 
-  <!-- Supabase -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-
-  <!-- QR Scanner -->
   <script src="https://unpkg.com/html5-qrcode"></script>
 
   <style>
@@ -18,6 +15,7 @@
     #reader {
       width: 320px;
       margin-top: 20px;
+      display: none;
     }
     #result {
       margin-top: 20px;
@@ -25,12 +23,17 @@
       font-size: 16px;
       font-weight: bold;
     }
+    #startBtn {
+      padding: 12px 20px;
+      font-size: 16px;
+    }
   </style>
 </head>
 <body>
 
 <h2>Scan Team QR</h2>
 
+<button id="startBtn">▶ Start Scanner</button>
 <div id="reader"></div>
 <div id="result"></div>
 
@@ -40,180 +43,136 @@ const supabaseUrl = "https://oizydyfwoymfaspnylno.supabase.co";
 const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9penlkeWZ3b3ltZmFzcG55bG5vIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA2MjEwMTAsImV4cCI6MjA4NjE5NzAxMH0.mupSJXh50rr715sVGX0MpKe-5aLB5EK70i_w4p_mDII";
 const supabase = supabase.createClient(supabaseUrl, supabaseKey);
 
-/************ GLOBAL STATE ************/
+/************ STATE ************/
 const resultDiv = document.getElementById("result");
 const readerDiv = document.getElementById("reader");
+const startBtn = document.getElementById("startBtn");
 
 let scanLocked = false;
 let scannerRunning = false;
 
 const html5QrCode = new Html5Qrcode("reader");
 
-/************ AUTO DAY DETECTION ************/
+/************ AUTO DAY ************/
 async function getCurrentDay() {
-  const { data, error } = await supabase
+  const { data } = await supabase
     .from("event_config")
     .select("event_start_date")
     .single();
 
-  if (error || !data) return null;
-
-  const startDate = new Date(data.event_start_date);
+  const start = new Date(data.event_start_date);
   const today = new Date();
-
-  startDate.setHours(0,0,0,0);
+  start.setHours(0,0,0,0);
   today.setHours(0,0,0,0);
 
-  const diffDays =
-    Math.floor((today - startDate) / (1000 * 60 * 60 * 24)) + 1;
-
-  return diffDays; // Day-1, Day-2, Day-3
+  return Math.floor((today - start)/(86400000)) + 1;
 }
 
-/************ GET ACTIVE SESSION ************/
+/************ ACTIVE SESSION ************/
 async function getActiveSession(day) {
-  const now = new Date();
-  const currentTime = now.toTimeString().slice(0, 8);
+  const time = new Date().toTimeString().slice(0,8);
 
-  const { data, error } = await supabase
+  const { data } = await supabase
     .from("time_windows")
     .select("*")
     .eq("day", day)
     .eq("is_active", true);
 
-  if (error || !data) return null;
+  if (!data) return null;
 
-  for (let session of data) {
-    if (
-      currentTime >= session.start_time &&
-      currentTime <= session.end_time
-    ) {
-      return session;
-    }
-  }
-  return null;
+  return data.find(s =>
+    time >= s.start_time && time <= s.end_time
+  );
 }
 
-/************ QR SUCCESS HANDLER ************/
-async function onScanSuccess(decodedText) {
+/************ SCAN SUCCESS ************/
+async function onScanSuccess(text) {
   if (scanLocked) return;
   scanLocked = true;
 
-  const teamId = decodedText.trim();
+  const teamId = text.trim();
 
-  if (scannerRunning) {
-    await html5QrCode.stop();
-    scannerRunning = false;
-  }
+  await html5QrCode.stop();
+  scannerRunning = false;
   readerDiv.style.display = "none";
 
   const day = await getCurrentDay();
-  if (!day) {
-    resultDiv.innerText = "❌ Event config missing";
-    return;
-  }
-
-  /* ⏰ ACTIVE SESSION */
   const session = await getActiveSession(day);
+
   if (!session) {
-    resultDiv.innerText = "⏰ Snack time is CLOSED";
-
-    setTimeout(() => {
-      scanLocked = false;
-      readerDiv.style.display = "block";
-      startScanner();
-    }, 3000);
-
+    resultDiv.innerText = "⏰ Snack time CLOSED";
+    resetScanner();
     return;
   }
 
-  try {
-    /* 🔍 FETCH TEAM */
-    const { data: team, error } = await supabase
-      .from("teams")
-      .select("*")
-      .eq("team_id", teamId)
-      .single();
+  const { data: team } = await supabase
+    .from("teams")
+    .select("*")
+    .eq("team_id", teamId)
+    .single();
 
-    if (error || !team) {
-      resultDiv.innerText = "❌ Invalid QR Code";
-      return;
-    }
-
-    if (team.status === "ELIMINATED") {
-      resultDiv.innerText = "❌ Team Eliminated";
-      return;
-    }
-
-    /* 🔁 SESSION DUPLICATE CHECK */
-    const { data: alreadyScanned } = await supabase
-      .from("team_session_scans")
-      .select("*")
-      .eq("team_id", teamId)
-      .eq("session_id", session.id)
-      .single();
-
-    if (alreadyScanned) {
-      resultDiv.innerText =
-        "❌ Already scanned in this session\n\n" +
-        session.session_name;
-
-      setTimeout(() => location.reload(), 4000);
-      return;
-    }
-
-    /* 🍪 DAILY LIMIT (example: Day-1 = 2) */
-    if (day === 1 && team.day1_count >= 2) {
-      resultDiv.innerText = "❌ Day 1 snack limit reached";
-      return;
-    }
-
-    /* ✅ UPDATE COUNT */
-    await supabase
-      .from("teams")
-      .update({ day1_count: team.day1_count + 1 })
-      .eq("team_id", teamId);
-
-    /* ✅ RECORD SESSION SCAN */
-    await supabase
-      .from("team_session_scans")
-      .insert({
-        team_id: teamId,
-        session_id: session.id
-      });
-
-    /* ✅ ACKNOWLEDGEMENT */
-    resultDiv.innerText =
-      "✅ Snack Issued Successfully\n\n" +
-      "Team: " + team.team_name + "\n" +
-      "Day: " + day + "\n" +
-      "Session: " + session.session_name;
-
-    setTimeout(() => location.reload(), 5000);
-
-  } catch (err) {
-    console.error(err);
-    resultDiv.innerText = "❌ Unexpected error";
+  if (!team) {
+    resultDiv.innerText = "❌ Invalid QR";
+    resetScanner();
+    return;
   }
+
+  const { data: already } = await supabase
+    .from("team_session_scans")
+    .select("*")
+    .eq("team_id", teamId)
+    .eq("session_id", session.id)
+    .single();
+
+  if (already) {
+    resultDiv.innerText = "❌ Already scanned this session";
+    resetScanner();
+    return;
+  }
+
+  await supabase
+    .from("teams")
+    .update({ day1_count: team.day1_count + 1 })
+    .eq("team_id", teamId);
+
+  await supabase
+    .from("team_session_scans")
+    .insert({ team_id: teamId, session_id: session.id });
+
+  resultDiv.innerText =
+    "✅ Snack Issued\n" +
+    "Team: " + team.team_name + "\n" +
+    "Session: " + session.session_name;
+
+  setTimeout(() => location.reload(), 5000);
 }
 
-/************ START SCANNER ************/
+/************ START / RESET ************/
 function startScanner() {
   if (scannerRunning) return;
-
   scannerRunning = true;
+  readerDiv.style.display = "block";
+
   html5QrCode.start(
-    { facingMode: "environment" },   // BACK CAMERA
+    { facingMode: "environment" },
     { fps: 10, qrbox: 250 },
     onScanSuccess
-  ).catch(err => {
-    scannerRunning = false;
-    console.error(err);
-    resultDiv.innerText = "❌ Camera access failed";
-  });
+  );
 }
 
-startScanner();
+function resetScanner() {
+  setTimeout(() => {
+    scanLocked = false;
+    startBtn.style.display = "block";
+    resultDiv.innerText = "";
+  }, 3000);
+}
+
+/************ USER ACTION ************/
+startBtn.onclick = () => {
+  startBtn.style.display = "none";
+  startScanner();
+};
 </script>
 
 </body>
